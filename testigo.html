@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HYPERFOCUS · Testigo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500&family=Geist+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+  :root { --bg:#f7f9f8; --card:#ebf0ee; --line:#d9e3e2; --ink:#06525c; --muted:#2f737d; --accent:#06525c; --on:#f7f9f8; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:Geist, system-ui, sans-serif; }
+  main { max-width:480px; margin:0 auto; padding:28px 20px 48px; display:flex; flex-direction:column; gap:14px; text-align:center; }
+  .who { font-size:14px; color:var(--muted); }
+  h1 { margin:0; font-size:28px; font-weight:500; letter-spacing:-0.04em; line-height:1.1; }
+  .muted { color:var(--muted); font-size:15px; line-height:1.45; margin:0; }
+  .code { font-family:'Geist Mono', monospace; letter-spacing:.1em; color:var(--ink); }
+  .card { border:1px solid var(--line); border-radius:16px; padding:16px; display:flex; flex-direction:column; gap:8px; text-align:center; }
+  .media { border-radius:10px; background:var(--card); position:relative; min-height:84px; display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:13px; overflow:hidden; }
+  .media img, .media video { width:100%; display:block; max-height:420px; object-fit:contain; background:#000; }
+  .badge { position:absolute; left:10px; bottom:10px; font-family:'Geist Mono', monospace; font-size:13px; letter-spacing:.1em; background:var(--bg); color:var(--ink); border-radius:6px; padding:3px 7px; }
+  .title { font-size:17px; font-weight:500; }
+  .xp { font-family:'Geist Mono', monospace; font-size:13px; color:var(--muted); }
+  .proof { font-size:14px; line-height:1.45; color:var(--muted); white-space:pre-line; margin:0; }
+  .btns { display:flex; gap:8px; margin-top:4px; }
+  button { flex:1; height:46px; border-radius:12px; font:500 15px Geist, system-ui, sans-serif; cursor:pointer; }
+  .yes { border:none; background:var(--accent); color:var(--on); }
+  .no { border:1px solid var(--line); background:transparent; color:var(--ink); font-weight:400; }
+  button:disabled { opacity:.5; }
+  .box { border-top:1px solid var(--line); padding-top:12px; font-size:14px; color:var(--muted); }
+  .done-ok { color:var(--ink); } .done-no { color:var(--muted); text-decoration:line-through; }
+</style>
+</head>
+<body>
+<main>
+  <div class="who" id="who">HYPERFOCUS, testigo</div>
+  <h1 id="hello">Cargando…</h1>
+  <p class="muted" id="hint"></p>
+  <div id="list"></div>
+  <div class="box" id="missingBox" hidden>Hoy no hizo: <span id="missing"></span></div>
+  <div class="box" id="historyBox" hidden>
+    <div>Lo que ya revisaste</div>
+    <div id="history" style="margin-top:6px; display:flex; flex-direction:column; gap:3px"></div>
+  </div>
+</main>
+<script>
+  // El link trae: t = tu token de testigo, u = URL de Supabase, k = publishable key (pública por diseño).
+  const q = new URLSearchParams(location.search);
+  const T = q.get('t'), U = (q.get('u') || '').replace(/\/$/, ''), K = q.get('k');
+  const NAMES = { HERMANA: 'hermana', ESPOSA: 'esposa' };
+  // Mismo tema que la app: bg, superficie, línea, tinta, gris, acento, texto sobre acento.
+  const THEMES = {
+    PAPEL: ['#f7f9f8','#ebf0ee','#d9e3e2','#06525c','#2f737d','#06525c','#f7f9f8'],
+    COBALTO: ['#eef0f3','#e2e5ea','#d1d4d8','#0b0c0e','#5d6470','#1f2de6','#ffffff'],
+    LINO: ['#f3f1ec','#e6e2d9','#d6d3cb','#1d2530','#5a6270','#2c5877','#ffffff'],
+    TIZA: ['#f8f5ef','#ede7dc','#ddd7cc','#1f1b18','#645c54','#b8381f','#ffffff'],
+    NOCHE: ['#0a0d14','#131824','#282d39','#e9edf3','#8891a1','#5ab9fc','#0a0d14'],
+    GRAFITO: ['#18191b','#222427','#36383b','#eff0f1','#9c9ea3','#ff4a1f','#18191b'],
+    BOSQUE: ['#161c1a','#1f2725','#333a37','#e3e2da','#8e948d','#9fc7b8','#161c1a']
+  };
+  const th = THEMES[q.get('th')] || THEMES.PAPEL;
+  ['--bg','--card','--line','--ink','--muted','--accent','--on'].forEach((v, i) => document.documentElement.style.setProperty(v, th[i]));
+
+  async function rpc(fn, body) {
+    const r = await fetch(`${U}/rest/v1/rpc/${fn}`, {
+      method: 'POST',
+      // Las llaves nuevas (sb_publishable_…) no son JWT: van solo en apikey.
+      headers: Object.assign({ apikey: K, 'Content-Type': 'application/json' }, K.startsWith('eyJ') ? { Authorization: `Bearer ${K}` } : {}),
+      body: JSON.stringify(body)
+    });
+    if (!r.ok) throw new Error(await r.text());
+    return r.json();
+  }
+
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  function card(p) {
+    const c = el('div', 'card');
+    const m = el('div', 'media');
+    if (p.media_url && (p.media_type || '').startsWith('video')) {
+      const v = el('video'); v.src = p.media_url; v.controls = true; v.playsInline = true; m.append(v);
+    } else if (p.media_url) {
+      const i = el('img'); i.src = p.media_url; i.alt = 'Prueba: ' + p.reason; m.append(i);
+    } else {
+      m.textContent = 'Esta prueba no trae foto. Decide con lo que escribió abajo.';
+    }
+    m.append(el('span', 'badge', p.code));
+    const b = el('div', 'body');
+    b.append(el('div', 'title', p.reason), el('div', 'xp', `${p.amount} XP`));
+    if (p.proof) b.append(el('div', 'proof', p.proof));
+    b.append(el('div', 'muted', new Date(p.created_at).toLocaleString('es-GT', { weekday: 'short', hour: '2-digit', minute: '2-digit' })));
+    const btns = el('div', 'btns');
+    const yes = el('button', 'yes', 'Sí cuenta');
+    const no = el('button', 'no', 'No cuenta');
+    const decide = async (accept) => {
+      yes.disabled = no.disabled = true;
+      try { await rpc('hf_decide', { p_token: T, p_id: p.id, p_accept: accept }); c.remove(); load(); }
+      catch (e) { yes.disabled = no.disabled = false; yes.textContent = 'Sin internet, intenta otra vez'; }
+    };
+    yes.onclick = () => decide(true);
+    no.onclick = () => decide(false);
+    btns.append(yes, no);
+    b.append(btns);
+    c.append(m, b);
+    return c;
+  }
+
+  async function load() {
+    if (!T || !U || !K) { document.getElementById('hello').textContent = 'Este link está incompleto.'; return; }
+    let v;
+    try { v = await rpc('hf_witness_view', { p_token: T }); }
+    catch (e) { document.getElementById('hello').textContent = 'No se pudo cargar. Revisa tu internet.'; return; }
+    if (!v.ok) { document.getElementById('hello').textContent = 'Este link ya no es válido.'; return; }
+    const n = v.pending.length;
+    document.getElementById('hello').textContent =
+      n === 0 ? 'No hay pruebas pendientes' : 'Pruebas de Si para confirmar';
+    document.getElementById('who').textContent = 'HYPERFOCUS · eres testigo de Si como su ' + (NAMES[v.role] || 'familiar');
+    const codes = [...new Set(v.pending.map(p => p.code))];
+    const hint = document.getElementById('hint');
+    hint.textContent = '';
+    if (codes.length) {
+      hint.append(`Hay ${n} ${n === 1 ? 'pendiente' : 'pendientes'}. Revisa que el código `);
+      hint.append(el('span', 'code', codes.join(', ')));
+      hint.append(' salga en cada prueba.');
+    }
+    const list = document.getElementById('list');
+    list.innerHTML = '';
+    list.style.cssText = 'display:flex; flex-direction:column; gap:12px';
+    v.pending.forEach(p => list.append(card(p)));
+    const miss = v.missing || [];
+    document.getElementById('missingBox').hidden = miss.length === 0;
+    document.getElementById('missing').textContent = miss.join(', ') + '.';
+    const hist = document.getElementById('history');
+    hist.innerHTML = '';
+    (v.decided || []).forEach(d => hist.append(el('div', d.status === 'confirmada' ? 'done-ok' : 'done-no',
+      `${d.reason}, ${d.amount} XP: ${d.status === 'confirmada' ? 'contó' : 'no contó'}`)));
+    document.getElementById('historyBox').hidden = !(v.decided || []).length;
+  }
+  load();
+</script>
+</body>
+</html>
